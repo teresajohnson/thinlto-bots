@@ -119,7 +119,7 @@ chown buildbot:buildbot $BOT_DIR
 rm -f /b/buildbot.tac
 
 WORKER_NAME="$(hostname)"
-#WORKER_PASSWORD="$(gsutil cat gs://ml-compiler-opt-buildbot/buildbot_password)"
+WORKER_PASSWORD="$(gsutil cat gs://thinlto-buildbot/buildbot_password)"
 
 echo "Starting build worker ${WORKER_NAME}"
 buildslave create-slave -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
