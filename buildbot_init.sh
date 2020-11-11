@@ -152,7 +152,7 @@ EOF
 
 chown -R buildbot:buildbot $BOT_DIR
 systemctl daemon-reload
-#systemctl start buildslave.service
+systemctl start buildslave.service
 
 sleep 30
 cat $BOT_DIR/twistd.log
