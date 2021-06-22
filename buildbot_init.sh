@@ -108,8 +108,10 @@ fi
   exit 1
 ) || on_error "Failed to install required packages."
 
-update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 20
-update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 10
+# gold is giving a weird internal error when trying to link many files, appears
+# to run out of file descriptors. Use bfd for now to workaround.
+update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 10
+update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 20
 
 # continue with getting the build worker up.
 systemctl set-property buildslave.service TasksMax=100000
