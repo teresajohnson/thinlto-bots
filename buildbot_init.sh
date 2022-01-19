@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright 2020 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +27,7 @@ function on_error {
   # shutdown now
 }
 
-MASTER_PORT=${MASTER_PORT:-9994}
+SERVER_PORT=${SERVER_PORT:-9994}
 BOT_DIR=/b
 
 mount -t tmpfs tmpfs /tmp
@@ -40,19 +41,6 @@ if lsb_release -a | grep "buster" ; then
 
 ADMIN_PACKAGES="tmux"
 
-  # buildbot from "buster" does not work with llvm master.
-  cat <<EOF >/etc/apt/sources.list.d/stretch.list
-deb http://deb.debian.org/debian/ stretch main
-deb-src http://deb.debian.org/debian/ stretch main
-deb http://security.debian.org/ stretch/updates main
-deb-src http://security.debian.org/ stretch/updates main
-deb http://deb.debian.org/debian/ stretch-updates main
-deb-src http://deb.debian.org/debian/ stretch-updates main
-EOF
-
-  cat <<EOF >/etc/apt/apt.conf.d/99stretch
-APT::Default-Release "buster";
-EOF
 
 fi
 
@@ -64,6 +52,9 @@ fi
 
     (
       set -ex
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com FEEA9169307EA071 || exit 1
+      apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 871920D1991BC93C || exit 1
+      
       dpkg --add-architecture i386
       echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
       dpkg --configure -a
@@ -75,6 +66,8 @@ fi
 
       apt-get install -qq -y \
         $BUSTER_PACKAGES \
+        python3 \
+        python3-pip \
         $ADMIN_PACKAGES \
         g++ \
         cmake \
@@ -101,8 +94,6 @@ fi
         wget \
         zlib1g-dev
 
-      apt-get install -qq -y -t stretch buildbot-slave=0.8.12-1
-      apt-mark hold buildbot-slave
     ) && exit 0
   done
   exit 1
@@ -113,8 +104,12 @@ fi
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.gold" 10
 update-alternatives --install "/usr/bin/ld" "ld" "/usr/bin/ld.bfd" 20
 
-# continue with getting the build worker up.
-systemctl set-property buildslave.service TasksMax=100000
+userdel buildbot
+groupadd buildbot
+useradd buildbot -g buildbot -m -d /var/lib/buildbot
+
+sudo -u buildbot python3 -m pip install --upgrade pip
+python3 -m pip install buildbot-worker
 
 chown buildbot:buildbot $BOT_DIR
 
@@ -122,13 +117,15 @@ rm -f /b/buildbot.tac
 
 WORKER_NAME="$(hostname)"
 WORKER_PASSWORD="$(gsutil cat gs://thinlto-buildbot/buildbot_password)"
+SERVICE_NAME=buildbot-worker@b.service
+[[ -d /var/lib/buildbot/workers/b ]] || ln -s $BOT_DIR /var/lib/buildbot/workers/b
 
+while pkill buildbot-worker; do sleep 5; done;
+
+rm -rf ${BOT_DIR}/buildbot.tac ${BOT_DIR}/twistd.log
 echo "Starting build worker ${WORKER_NAME}"
-buildslave create-slave -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$MASTER_PORT \
+sudo -u buildbot buildbot-worker create-worker -f --allow-shutdown=signal $BOT_DIR lab.llvm.org:$SERVER_PORT \
    "${WORKER_NAME}" "${WORKER_PASSWORD}"
-
-systemctl stop buildslave.service
-while pkill buildslave; do sleep 5; done;
 
 echo "Teresa Johnson <tejohnson@google.com>" > $BOT_DIR/info/admin
 
@@ -143,21 +140,9 @@ echo "Teresa Johnson <tejohnson@google.com>" > $BOT_DIR/info/admin
   lscpu
 } > $BOT_DIR/info/host
 
-cat <<EOF >/etc/default/buildslave
-SLAVE_ENABLED[1]=1
-SLAVE_NAME[1]="default"
-SLAVE_USER[1]="buildbot"
-SLAVE_BASEDIR[1]="$BOT_DIR"
-SLAVE_OPTIONS[1]=""
-SLAVE_PREFIXCMD[1]=""
-EOF
-
 chown -R buildbot:buildbot $BOT_DIR
-systemctl daemon-reload
-systemctl start buildslave.service
+sudo -u buildbot buildbot-worker start $BOT_DIR
 
 sleep 30
 cat $BOT_DIR/twistd.log
-grep "slave is ready" $BOT_DIR/twistd.log || on_error "build worker not ready"
-
-echo "Started build worker ${WORKER_NAME} successfully."
+grep "worker is ready" $BOT_DIR/twistd.log || on_error "build worker not ready"
