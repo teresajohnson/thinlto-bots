@@ -109,7 +109,7 @@ groupadd buildbot
 useradd buildbot -g buildbot -m -d /var/lib/buildbot
 
 sudo -u buildbot python3 -m pip install --upgrade pip
-python3 -m pip install buildbot-worker
+python3 -m pip install buildbot-worker==2.9.0
 
 chown buildbot:buildbot $BOT_DIR
 
